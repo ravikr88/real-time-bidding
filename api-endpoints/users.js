@@ -4,26 +4,72 @@ const db = require("../database/db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-//  POST /users/login - Authenticate a user and return a token.
+// Middleware to authenticate user
+const authenticateUser = (req, res, next) => {
+  // const token = req.headers.authorization;
+  token = req.headers.authorization.split(" ")[1];
+  // ['Bearer', <token> ] so .split(" ")[1] to get token
+
+  if (!token) {
+    // no token is provided
+    return res.status(401).json({ error: "Authorization token is required" });
+  }
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    req.user = decoded; // Store user information in request object
+
+    // console.log(
+    //   `got profile of authorized user ${req.user.username}`,
+    //   req.user
+    // );
+
+    next(); // Proceed to the next middleware/route handler
+  } catch (error) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+};
+
+// GET /users/profile - Get the profile of the logged-in user
+router.get("/profile", authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Fetch user profile from the database
+    const userProfileQuery =
+      "SELECT id, username, email, role FROM users WHERE id = $1";
+    const userProfileResult = await db.query(userProfileQuery, [userId]);
+
+    if (userProfileResult.rows.length === 0) {
+      return res.status(404).json({ error: "User profile not found" });
+    }
+
+    // Return the user profile
+    res.json(userProfileResult.rows[0]);
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /users/login - Authenticate a user and return a token.
 router.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
-    // console.log(username, password);
 
-    // Check if the user already exists
     const userQuery = `
       SELECT id, username, password, email, role FROM users WHERE username = $1;
     `;
     const userResult = await db.query(userQuery, [username]);
-
-    // console.log("userResult -> ", userResult);
 
     if (userResult.rows.length === 0) {
       return res.status(400).json({ error: "Invalid username or password" });
     }
 
     const user = userResult.rows[0];
-    console.log(user); // print user with given username and password
 
     // Verify the password
     const validPassword = await bcrypt.compare(password, user.password);
@@ -54,8 +100,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// **********************
-
 router.post("/register", async (req, res) => {
   try {
     const { username, password, email, role } = req.body;
@@ -73,7 +117,6 @@ router.post("/register", async (req, res) => {
     // Hash the password before storing it
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert the new user into the database
     const insertUserQuery = `
       INSERT INTO users (username, password, email, role) VALUES ($1, $2, $3, $4) RETURNING *;
     `;
@@ -84,7 +127,6 @@ router.post("/register", async (req, res) => {
       role || "user",
     ]);
 
-    // Respond with the newly created user data
     res.status(201).json({
       message: `User ${username} registered successfully`,
       user: newUser.rows[0],
@@ -95,8 +137,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-//**************
-
+// get all users
 router.get("/", async (req, res) => {
   try {
     // Execute a query to fetch all items from the database

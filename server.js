@@ -8,13 +8,15 @@ require("dotenv").config();
 // const db = require("./database/db.js");
 
 const app = express();
-app.use(express.json());
+app.use(express.json()); // includes bodyParser
 
-// Mount the items route on a specific path
-app.use("/items", itemsRoute);
+//
+
 app.use("/users", usersRoute);
+app.use("/items", itemsRoute);
 app.use("/notifications", notificationsRoute);
 app.use("/bids", bidsRoute);
+//
 
 const port = process.env.PORT || 5001;
 console.clear();

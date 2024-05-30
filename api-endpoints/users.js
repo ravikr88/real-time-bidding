@@ -1,7 +1,101 @@
 const express = require("express");
-const db = require("../database/db.js"); // Import the db module
-
 const router = express.Router();
+const db = require("../database/db");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+
+//  POST /users/login - Authenticate a user and return a token.
+router.post("/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    // console.log(username, password);
+
+    // Check if the user already exists
+    const userQuery = `
+      SELECT id, username, password, email, role FROM users WHERE username = $1;
+    `;
+    const userResult = await db.query(userQuery, [username]);
+
+    // console.log("userResult -> ", userResult);
+
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({ error: "Invalid username or password" });
+    }
+
+    const user = userResult.rows[0];
+    console.log(user); // print user with given username and password
+
+    // Verify the password
+    const validPassword = await bcrypt.compare(password, user.password);
+    console.log(validPassword);
+    if (!validPassword) {
+      return res.status(400).json({ error: "Invalid username or password" });
+    }
+
+    // Generate a token
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    // Respond with the token
+    res
+      .status(200)
+      .json({ message: `${username} loggedin successfully`, token });
+  } catch (error) {
+    console.error("Error during login:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// **********************
+
+router.post("/register", async (req, res) => {
+  try {
+    const { username, password, email, role } = req.body;
+
+    // Check if the username or email already exists
+    const userExistsQuery = `
+      SELECT username, email FROM users WHERE username = $1 OR email = $2;
+    `;
+    const userExistsResult = await db.query(userExistsQuery, [username, email]);
+
+    if (userExistsResult.rows.length > 0) {
+      return res.status(400).json({ error: "User is already registered" });
+    }
+
+    // Hash the password before storing it
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert the new user into the database
+    const insertUserQuery = `
+      INSERT INTO users (username, password, email, role) VALUES ($1, $2, $3, $4) RETURNING *;
+    `;
+    const newUser = await db.query(insertUserQuery, [
+      username,
+      hashedPassword,
+      email,
+      role || "user",
+    ]);
+
+    // Respond with the newly created user data
+    res.status(201).json({
+      message: `User ${username} registered successfully`,
+      user: newUser.rows[0],
+    });
+  } catch (error) {
+    console.error("Error registering user:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+//**************
 
 router.get("/", async (req, res) => {
   try {
@@ -41,7 +135,4 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// router.put("/:id", (req, res) => {
-//   res.send(`update item with id ${req.params.id}`);
-// });
 module.exports = router;
